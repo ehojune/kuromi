@@ -1,0 +1,30 @@
+# Slack 앱 매니페스트 — https://api.slack.com/apps → "Create New App" → "From a manifest" 에 붙여넣기
+display_information:
+  name: 쿠로미
+  description: 개인 AI 비서
+  background_color: "#4a154b"
+features:
+  bot_user:
+    display_name: 쿠로미
+    always_online: true
+oauth_config:
+  scopes:
+    bot:
+      - app_mentions:read
+      - chat:write
+      - files:write
+      - files:read
+      - im:history
+      - im:read
+      - im:write
+      - channels:history
+      - groups:history
+      - mpim:history
+settings:
+  event_subscriptions:
+    bot_events:
+      - app_mention
+      - message.im
+  org_deploy_enabled: false
+  socket_mode_enabled: true
+  token_rotation_enabled: false

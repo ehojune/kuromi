@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+
+# 비밀값 — 실제 토큰/키가 들어있는 파일들
+.env
+google-calendar-key.json
+*.json.key
+owner.json
+
+# 런타임 로그
+*.log

@@ -1,0 +1,20 @@
+# 연구 관심사 (쿠로미 논문 스카우트용)
+
+이 파일을 고치면 쿠로미가 매일 찾아오는 논문 주제가 바뀝니다.
+아래 **## PubMed queries** 의 불릿이 그대로 검색어로 쓰여요. 자유롭게 추가/삭제/수정하세요.
+
+## 분야 메모
+- 유전체학 / 통계유전학 / 법유전학(forensic genetics)
+- 진행 중 프로젝트(트래커 태그 기반 추정): STR, Y-STR, kinship(친자·혈연), twin(쌍둥이), splicing, 한국인 유전체
+- llm-wiki 근거 논문: 한국인 유전체 프로젝트(Jeon 2020), 희귀변이 질환유전학(Lee 2026)
+
+> 위 추정이 실제 관심사와 다르면 아래 검색어를 직접 고쳐주세요.
+
+## PubMed queries
+- forensic STR profiling
+- Y-STR haplotype population
+- kinship inference SNP genome
+- twin study heritability
+- RNA splicing variant pathogenic
+- Korean genome population genetics
+- rare variant burden association disease
