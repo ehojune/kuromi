@@ -14,7 +14,12 @@ from claude_agent_sdk import (
     create_sdk_mcp_server,
 )
 
-from google_calendar_tools import google_calendar_add_event, google_calendar_events
+from google_calendar_tools import (
+    google_calendar_add_event,
+    google_calendar_delete_event,
+    google_calendar_events,
+    google_calendar_update_event,
+)
 from notion_tools import notion_add_task, notion_calendar_events, notion_today_tasks
 from paper_tools import (
     add_interest_topic,
@@ -40,6 +45,8 @@ class Brain:
                 notion_calendar_events,
                 google_calendar_events,
                 google_calendar_add_event,
+                google_calendar_update_event,
+                google_calendar_delete_event,
                 search_pubmed,
                 recent_papers_for_interests,
                 add_interest_topic,
@@ -60,6 +67,8 @@ class Brain:
                 "mcp__kuromi__notion_calendar_events",
                 "mcp__kuromi__google_calendar_events",
                 "mcp__kuromi__google_calendar_add_event",
+                "mcp__kuromi__google_calendar_update_event",
+                "mcp__kuromi__google_calendar_delete_event",
                 "mcp__kuromi__search_pubmed",
                 "mcp__kuromi__recent_papers_for_interests",
                 "mcp__kuromi__add_interest_topic",

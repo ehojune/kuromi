@@ -149,3 +149,121 @@ async def google_calendar_add_event(args):
     when = start + (f" ~ {end}" if end else "")
     link = ev.get("htmlLink", "")
     return {"content": [{"type": "text", "text": f"일정 등록 완료: {title} ({when})\n{link}"}]}
+
+
+def _when_title(ev):
+    s = ev.get("start", {})
+    when = s.get("dateTime") or s.get("date") or "-"
+    return when, ev.get("summary") or "(제목 없음)"
+
+
+def _search_events_sync(calendar_id, query, date) -> list:
+    """query(전문검색)/date 로 이벤트를 찾는다. date 있으면 그 날짜 시작 이벤트만 남긴다."""
+    service = _service()
+    now = dt.datetime.now(dt.timezone.utc)
+    result = service.events().list(
+        calendarId=calendar_id,
+        timeMin=(now - dt.timedelta(days=7)).isoformat(),
+        timeMax=(now + dt.timedelta(days=180)).isoformat(),
+        singleEvents=True, orderBy="startTime", maxResults=250,
+        q=query or None,
+    ).execute()
+    items = result.get("items", [])
+    if date:
+        items = [ev for ev in items
+                 if (ev.get("start", {}).get("dateTime") or ev.get("start", {}).get("date") or "").startswith(date)]
+    return items
+
+
+def _candidates_text(head, items):
+    lines = [head]
+    for ev in items[:10]:
+        when, title = _when_title(ev)
+        lines.append(f"- {when}  {title}")
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+
+@tool(
+    "google_calendar_delete_event",
+    "구글 캘린더 일정을 삭제한다. query(제목 등 검색어)와/또는 date('YYYY-MM-DD')로 대상을 특정한다. "
+    "정확히 1개로 좁혀질 때만 삭제하고, 여러 개면 후보를 돌려주니 날짜 등으로 더 구체적으로 다시 부를 것. "
+    "사용자가 '~ 일정 취소/삭제해줘' 하면 사용.",
+    {"query": str, "date": str},
+)
+async def google_calendar_delete_event(args):
+    cfg = load_config()
+    if not cfg.google_calendar_credentials_path or not cfg.google_calendar_id:
+        return {"content": [{"type": "text", "text": "구글 캘린더 연동이 아직 설정 안 됐어요."}]}
+    query = (args.get("query") or "").strip()
+    date = (args.get("date") or "").strip()
+    if not query and not date:
+        return {"content": [{"type": "text", "text": "무엇을 지울지 query(제목)나 date 를 줘."}]}
+    try:
+        items = await asyncio.to_thread(_search_events_sync, cfg.google_calendar_id, query, date)
+    except Exception as e:
+        return {"content": [{"type": "text", "text": f"[Google Calendar 오류] {e}"}]}
+    if not items:
+        return {"content": [{"type": "text", "text": "그 조건에 맞는 일정을 못 찾았어."}]}
+    if len(items) > 1:
+        return _candidates_text("여러 개 있어 — 날짜 등으로 더 구체적으로 말해줘:", items)
+
+    ev = items[0]
+    when, title = _when_title(ev)
+    try:
+        await asyncio.to_thread(
+            lambda: _service().events().delete(
+                calendarId=cfg.google_calendar_id, eventId=ev["id"]).execute()
+        )
+    except Exception as e:
+        return {"content": [{"type": "text", "text": f"[Google Calendar 오류] {e}"}]}
+    return {"content": [{"type": "text", "text": f"삭제했어: {title} ({when})"}]}
+
+
+@tool(
+    "google_calendar_update_event",
+    "구글 캘린더 일정을 수정한다. query/date 로 대상 1개를 특정하고 바꿀 값만 준다: "
+    "new_title, new_start, new_end('YYYY-MM-DDTHH:MM' 또는 'YYYY-MM-DD'), new_location. "
+    "시간을 옮길 땐 new_start 와 new_end 를 함께 주는 게 안전. 정확히 1개로 좁혀질 때만 수정.",
+    {"query": str, "date": str, "new_title": str, "new_start": str, "new_end": str, "new_location": str},
+)
+async def google_calendar_update_event(args):
+    cfg = load_config()
+    if not cfg.google_calendar_credentials_path or not cfg.google_calendar_id:
+        return {"content": [{"type": "text", "text": "구글 캘린더 연동이 아직 설정 안 됐어요."}]}
+    query = (args.get("query") or "").strip()
+    date = (args.get("date") or "").strip()
+    if not query and not date:
+        return {"content": [{"type": "text", "text": "무엇을 바꿀지 query(제목)나 date 를 줘."}]}
+
+    tz = "Asia/Seoul"
+    body = {}
+    if (v := (args.get("new_title") or "").strip()):
+        body["summary"] = v
+    if (v := (args.get("new_start") or "").strip()):
+        body["start"], _ = _parse_when(v, tz)
+    if (v := (args.get("new_end") or "").strip()):
+        body["end"], _ = _parse_when(v, tz)
+    if (v := (args.get("new_location") or "").strip()):
+        body["location"] = v
+    if not body:
+        return {"content": [{"type": "text", "text": "바꿀 내용(new_title/new_start/new_end/new_location)을 하나는 줘."}]}
+
+    try:
+        items = await asyncio.to_thread(_search_events_sync, cfg.google_calendar_id, query, date)
+    except Exception as e:
+        return {"content": [{"type": "text", "text": f"[Google Calendar 오류] {e}"}]}
+    if not items:
+        return {"content": [{"type": "text", "text": "그 조건에 맞는 일정을 못 찾았어."}]}
+    if len(items) > 1:
+        return _candidates_text("여러 개 있어 — 날짜 등으로 더 구체적으로 말해줘:", items)
+
+    ev = items[0]
+    try:
+        updated = await asyncio.to_thread(
+            lambda: _service().events().patch(
+                calendarId=cfg.google_calendar_id, eventId=ev["id"], body=body).execute()
+        )
+    except Exception as e:
+        return {"content": [{"type": "text", "text": f"[Google Calendar 오류] {e}"}]}
+    when, title = _when_title(updated)
+    return {"content": [{"type": "text", "text": f"수정했어: {title} ({when})"}]}
