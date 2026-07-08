@@ -63,17 +63,30 @@ async def main():
         _log("주인 DM 채널을 몰라요. 먼저 Slack 에서 쿠로미에게 DM 을 한 번 보내주세요.")
         return
 
-    brain = Brain(cfg)
+    # 채널을 구한 뒤부터는 실패해도 조용히 죽지 않고 Slack 으로 알린다.
     try:
-        _log("두뇌로 브리핑 작성 중...")
-        briefing = await brain.ask("daily-briefing", _PROMPT)
-    finally:
-        await brain.shutdown()
+        brain = Brain(cfg)
+        try:
+            _log("두뇌로 브리핑 작성 중...")
+            briefing = await brain.ask("daily-briefing", _PROMPT)
+        finally:
+            await brain.shutdown()
 
-    briefing = briefing or "오늘 브리핑 생성에 실패했어 🥲"
-    header = f"🖤 *오늘의 브리핑* ({dt.date.today().isoformat()})\n\n"
-    await slack.chat_postMessage(channel=channel, text=header + briefing)
-    _log(f"브리핑 전송 완료 (채널 {channel}, {len(briefing)}자)")
+        briefing = briefing or "오늘 브리핑 생성에 실패했어 🥲"
+        header = f"🖤 *오늘의 브리핑* ({dt.date.today().isoformat()})\n\n"
+        await slack.chat_postMessage(channel=channel, text=header + briefing)
+        _log(f"브리핑 전송 완료 (채널 {channel}, {len(briefing)}자)")
+    except Exception as e:
+        _log(f"[실패] {type(e).__name__}: {e}")
+        # 실패 알림 자체가 또 실패해도 무시 (예: Slack 장애).
+        try:
+            await slack.chat_postMessage(
+                channel=channel,
+                text=(f"🖤 오늘 아침 브리핑을 만들다 문제가 생겼어: "
+                      f"`{type(e).__name__}: {e}`\n(자세한 건 briefing.log 확인해줘)"),
+            )
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
