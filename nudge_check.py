@@ -1,8 +1,10 @@
 """능동 마감 체크인: 마감이 임박/지난 할 일이 있을 때만 Slack DM 으로 살짝 찔러준다.
 
 - Claude(Brain)를 부르지 않는다. Notion 트래커를 코드로만 훑는 순수 로직이라 가볍고 안정적.
-- 작업 스케줄러가 낮 동안 2~3시간 간격으로 호출한다.
-- 스팸 방지: 같은 할 일은 하루에 한 번만 알린다(nudge_state.json). 알릴 게 없으면 조용히 종료.
+- 작업 스케줄러(KuromiNudgeCheck)가 09/12/15/18/21시, 즉 깨어있는 시간대에 3시간 간격으로 호출한다.
+- 스팸 방지: 하루 1회가 아니라 "완료(Done) 처리될 때까지, 같은 할 일은 최소 ~3시간 간격으로"
+  재알림한다(nudge_state.json 에 할 일별 마지막 알림 시각 기록). 그 간격 안이면 조용히 스킵,
+  알릴 게 하나도 없으면 Slack 메시지 없이 로그만 남기고 종료.
 """
 import asyncio
 import datetime as dt
@@ -27,6 +29,10 @@ from owner import load_owner
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _STATE = os.path.join(_HERE, "nudge_state.json")
 _LOG = os.path.join(_HERE, "nudge.log")
+
+# 스케줄러는 정확히 3시간 간격(09/12/15/18/21시)으로 호출한다. 스케줄 지연/드리프트를
+# 견디도록 살짝 여유를 두고, 그보다 조금이라도 더 지났으면 다음 호출 때 재알림한다.
+_RENOTIFY_AFTER = dt.timedelta(hours=2, minutes=50)
 
 
 def _log(msg: str) -> None:
@@ -75,9 +81,13 @@ def format_nudge(urgent):
 
 def _load_state():
     try:
-        return json.loads(open(_STATE, encoding="utf-8").read())
+        state = json.loads(open(_STATE, encoding="utf-8").read())
     except (OSError, ValueError):
         return {}
+    # 예전 포맷("date"+"notified" 하루 1회 방식) 호환: last_notified 없으면 빈 걸로 시작.
+    if "last_notified" not in state:
+        return {}
+    return state
 
 
 def _save_state(state):
@@ -86,6 +96,25 @@ def _save_state(state):
             json.dump(state, f, ensure_ascii=False)
     except OSError:
         pass
+
+
+def pick_fresh(urgent, last_notified, now):
+    """last_notified(할 일 제목 -> 마지막 알림 ISO 시각) 기준으로 지금 다시 알릴 것만 골라낸다.
+
+    한 번도 알린 적 없거나, 마지막 알림 후 _RENOTIFY_AFTER 이상 지났으면 재알림 대상."""
+    fresh = []
+    for u in urgent:
+        ts = last_notified.get(u["title"])
+        if ts:
+            try:
+                prev = dt.datetime.fromisoformat(ts)
+            except ValueError:
+                prev = None
+        else:
+            prev = None
+        if prev is None or (now - prev) >= _RENOTIFY_AFTER:
+            fresh.append(u)
+    return fresh
 
 
 async def main():
@@ -107,20 +136,23 @@ async def main():
         return
     urgent = collect_urgent(rows, today)
 
-    # 하루 한 번 규칙: 오늘 이미 알린 제목은 제외.
+    # 완료될 때까지 재알림 규칙: 마지막 알림 후 _RENOTIFY_AFTER 이상 지난 것만 다시 알린다.
     state = _load_state()
-    if state.get("date") != today.isoformat():
-        state = {"date": today.isoformat(), "notified": []}
-    already = set(state["notified"])
-    fresh = [u for u in urgent if u["title"] not in already]
+    last_notified = state.get("last_notified", {})
+    now = dt.datetime.now()
+    fresh = pick_fresh(urgent, last_notified, now)
 
     if not fresh:
-        _log(f"긴급 {len(urgent)}건, 새로 알릴 것 없음 — 조용히 종료")
+        _log(f"긴급 {len(urgent)}건, 재알림 대상 없음(간격 미도달) — 조용히 종료")
         return
 
     slack = AsyncWebClient(token=cfg.slack_bot_token)
     await slack.chat_postMessage(channel=channel, text=format_nudge(fresh))
-    state["notified"] = sorted(already | {u["title"] for u in fresh})
+    for u in fresh:
+        last_notified[u["title"]] = now.isoformat(timespec="seconds")
+    # Done 처리되었거나 더 이상 안 급한(연기된) 항목은 상태 파일에서 정리해 무한정 안 늘어나게.
+    urgent_titles = {u["title"] for u in urgent}
+    state["last_notified"] = {t: ts for t, ts in last_notified.items() if t in urgent_titles}
     _save_state(state)
     _log(f"{len(fresh)}건 알림 전송")
 
