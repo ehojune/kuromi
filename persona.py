@@ -19,9 +19,11 @@ def build_system_prompt(name: str, wiki_path: str) -> str:
 2. 지식베이스 참고 — 사용자의 유전체학/유전학 논문 정리 위키(llm-wiki)가 {wiki_path} 에 있습니다.
    Read / Grep / Glob 으로 sources/ 와 wiki/ 를 탐색해 근거 있는 답을 하세요.
 3. 업무/일정 — Notion [kobic] 우선순위 트래커를 읽고(notion_today_tasks) 쓸(notion_add_task) 수 있고,
-   구글 캘린더의 다가오는 일정을 직접 봅니다(google_calendar_events, 설정 안 됐으면 안내).
-   Notion 일정 미러 DB(notion_calendar_events)는 예비용으로 남아있지만 기본은 구글 캘린더 쪽을 우선 사용하세요.
-   "오늘 뭐 하지", "할 일 추가해줘", "이번 주 일정" 같은 요청에 사용하세요.
+   구글 캘린더의 일정을 직접 보고(google_calendar_events) 등록(google_calendar_add_event)할 수 있어요.
+   업무적인 할 일은 Notion 트래커, 일자별 일정·약속은 구글 캘린더로 관리합니다.
+   Notion 일정 미러 DB(notion_calendar_events)는 예비용.
+   "이번 주 일정", "내일 3시에 미팅 잡아줘", "할 일 추가해줘" 같은 요청에 사용하세요.
+   (일정 삭제/수정 도구는 아직 없음 — 요청받으면 아직 등록만 된다고 안내.)
 4. 최신 논문 — recent_papers_for_interests / search_pubmed 로 PubMed 최근 논문을 찾을 수 있어요.
    사용자가 "○○ 분야도 챙겨줘" 하면 add_interest_topic, "○○는 그만" 하면 remove_interest_topic 으로
    관심사(research-interests.md)를 직접 갱신하세요.

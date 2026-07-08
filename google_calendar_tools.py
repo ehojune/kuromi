@@ -11,11 +11,14 @@
 """
 import asyncio
 import datetime as dt
+import re
 
 from claude_agent_sdk import tool
 from config import load_config
 
-_SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
+# calendar.events 스코프면 이벤트 읽기+쓰기(등록)까지 가능.
+# 단, 실제 쓰기 여부는 서비스 계정이 그 캘린더에서 받은 공유 권한(accessRole=writer)에도 달림.
+_SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
 
 
 def _service():
@@ -82,3 +85,67 @@ async def google_calendar_events(args):
             line += f" @ {loc}"
         lines.append(line)
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+
+def _parse_when(value: str, tz: str):
+    """'YYYY-MM-DD' → 종일, 'YYYY-MM-DDTHH:MM[:SS]' → 시간 지정. (dict, is_all_day) 반환."""
+    value = value.strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        return {"date": value}, True
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}", value):
+        value += ":00"
+    return {"dateTime": value, "timeZone": tz}, False
+
+
+def _add_event_sync(calendar_id, title, start, end, location, tz) -> dict:
+    service = _service()
+    s_obj, all_day = _parse_when(start, tz)
+    if end:
+        e_obj, _ = _parse_when(end, tz)
+        if all_day and e_obj.get("date") == s_obj.get("date"):
+            nxt = dt.date.fromisoformat(e_obj["date"]) + dt.timedelta(days=1)
+            e_obj = {"date": nxt.isoformat()}  # 구글 종일 end.date 는 배타적
+    elif all_day:
+        nxt = dt.date.fromisoformat(start) + dt.timedelta(days=1)
+        e_obj = {"date": nxt.isoformat()}
+    else:
+        base = dt.datetime.fromisoformat(s_obj["dateTime"])
+        e_obj = {"dateTime": (base + dt.timedelta(hours=1)).isoformat(), "timeZone": tz}
+
+    body = {"summary": title, "start": s_obj, "end": e_obj}
+    if location:
+        body["location"] = location
+    return service.events().insert(calendarId=calendar_id, body=body).execute()
+
+
+@tool(
+    "google_calendar_add_event",
+    "구글 캘린더에 일정을 등록한다. title 필수. "
+    "start/end 는 'YYYY-MM-DDTHH:MM'(시간 지정) 또는 'YYYY-MM-DD'(종일). "
+    "end 생략 시 시간일정은 +1시간, 종일은 당일. tz 기본 Asia/Seoul. location 선택. "
+    "사용자가 '언제 뭐 일정 잡아줘/추가해줘' 하면 사용.",
+    {"title": str, "start": str, "end": str, "location": str, "tz": str},
+)
+async def google_calendar_add_event(args):
+    cfg = load_config()
+    if not cfg.google_calendar_credentials_path or not cfg.google_calendar_id:
+        return {"content": [{"type": "text", "text": "구글 캘린더 연동이 아직 설정 안 됐어요."}]}
+
+    title = (args.get("title") or "").strip()
+    start = (args.get("start") or "").strip()
+    if not title or not start:
+        return {"content": [{"type": "text", "text": "title 과 start 는 필수예요."}]}
+    end = (args.get("end") or "").strip()
+    location = (args.get("location") or "").strip()
+    tz = (args.get("tz") or "Asia/Seoul").strip()
+
+    try:
+        ev = await asyncio.to_thread(
+            _add_event_sync, cfg.google_calendar_id, title, start, end, location, tz
+        )
+    except Exception as e:
+        return {"content": [{"type": "text", "text": f"[Google Calendar 오류] {e}"}]}
+
+    when = start + (f" ~ {end}" if end else "")
+    link = ev.get("htmlLink", "")
+    return {"content": [{"type": "text", "text": f"일정 등록 완료: {title} ({when})\n{link}"}]}
