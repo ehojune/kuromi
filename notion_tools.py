@@ -4,6 +4,7 @@
 TLS 프록시 대응은 net.py(truststore)가 담당 — 이 모듈을 쓰는 프로세스가 먼저 import 할 것.
 """
 import datetime as dt
+import difflib
 
 import aiohttp
 
@@ -14,6 +15,20 @@ _API = "https://api.notion.com/v1"
 _VER = "2022-06-28"
 _TIMEOUT = aiohttp.ClientTimeout(total=25)
 _DONE = {"Done", "Tentatively done", "over"}  # '완료' 그룹 상태
+# 트래커 Status 옵션 (To-do / In progress / Complete 그룹). 완료 처리 기본값은 Done.
+_STATUS_OPTIONS = ["waiting", "Not started", "Pending", "In progress",
+                   "Blocked", "over", "Tentatively done", "Done"]
+
+
+def _normalize_status(s: str | None) -> str | None:
+    s = (s or "").strip()
+    if not s:
+        return "Done"  # 그냥 '완료 처리' 요청이면 Done
+    for opt in _STATUS_OPTIONS:
+        if opt.lower() == s.lower():
+            return opt
+    m = difflib.get_close_matches(s, _STATUS_OPTIONS, n=1, cutoff=0.6)
+    return m[0] if m else None
 
 
 def _headers() -> dict:
@@ -42,6 +57,17 @@ async def _create_page(db_id: str, properties: dict) -> dict:
         async with s.post(f"{_API}/pages", headers=_headers(),
                           json={"parent": {"database_id": db_id}, "properties": properties},
                           timeout=_TIMEOUT) as r:
+            data = await r.json()
+    if data.get("object") == "error":
+        raise RuntimeError(f"{data.get('status')} {data.get('code')}: {data.get('message')}")
+    return data
+
+
+async def _update_page(page_id: str, body: dict) -> dict:
+    """페이지 속성/보관 상태를 바꾼다. body 예: {'properties': {...}} 또는 {'archived': True}."""
+    async with aiohttp.ClientSession() as s:
+        async with s.patch(f"{_API}/pages/{page_id}", headers=_headers(),
+                          json=body, timeout=_TIMEOUT) as r:
             data = await r.json()
     if data.get("object") == "error":
         raise RuntimeError(f"{data.get('status')} {data.get('code')}: {data.get('message')}")
@@ -173,3 +199,52 @@ async def notion_calendar_events(args):
         when = _date(p, "Date") or "-"
         lines.append(f"- {when}  {title}")
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+
+@tool(
+    "notion_update_task",
+    "우선순위 트래커 할 일의 상태를 바꾼다(완료 처리 등). query(제목 검색어)로 대상을 찾고 "
+    "status(기본 'Done')로 바꾼다. notes 로 메모 추가 가능. 정확히 1개로 좁혀질 때만 실행하고 "
+    "여러 개면 후보를 돌려주니 더 구체적으로 다시 부를 것. "
+    "유효 상태: waiting / Not started / Pending / In progress / Blocked / over / Tentatively done / Done. "
+    "사용자가 '~ 끝냈어/완료했어/진행중으로 바꿔줘' 하면 사용.",
+    {"query": str, "status": str, "notes": str},
+)
+async def notion_update_task(args):
+    query = (args.get("query") or "").strip()
+    if not query:
+        return {"content": [{"type": "text", "text": "어떤 할 일인지 query(제목) 를 줘."}]}
+    status = _normalize_status(args.get("status"))
+    if status is None:
+        return {"content": [{"type": "text", "text":
+            f"그 상태값을 몰라. 유효한 값: {', '.join(_STATUS_OPTIONS)}"}]}
+    notes = (args.get("notes") or "").strip()
+
+    cfg = load_config()
+    try:
+        rows = await _query_db(cfg.tracker_db_id)
+    except Exception as e:
+        return {"content": [{"type": "text", "text": f"[Notion 오류] {e}"}]}
+
+    entries = [(_title(p["properties"], "task"), p["id"], _status(p["properties"])) for p in rows]
+    # 부분일치 우선, 없으면 difflib 근사매칭.
+    cand = [(t, i, s) for t, i, s in entries if query.lower() in t.lower()]
+    if not cand:
+        close = difflib.get_close_matches(query, [t for t, _, _ in entries], n=5, cutoff=0.4)
+        cand = [(t, i, s) for t, i, s in entries if t in close]
+
+    if not cand:
+        return {"content": [{"type": "text", "text": f"'{query}' 와 맞는 할 일을 못 찾았어."}]}
+    if len(cand) > 1:
+        lines = ["여러 개 있어 — 더 구체적으로 말해줘:"] + [f"- {t} ({s})" for t, _, s in cand[:8]]
+        return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+    title, page_id, old = cand[0]
+    props = {"Status": {"status": {"name": status}}}
+    if notes:
+        props["Notes"] = {"rich_text": [{"text": {"content": notes}}]}
+    try:
+        await _update_page(page_id, {"properties": props})
+    except Exception as e:
+        return {"content": [{"type": "text", "text": f"[Notion 오류] {e}"}]}
+    return {"content": [{"type": "text", "text": f"'{title}' 상태를 {old} → {status} 로 바꿨어."}]}

@@ -20,7 +20,12 @@ from google_calendar_tools import (
     google_calendar_events,
     google_calendar_update_event,
 )
-from notion_tools import notion_add_task, notion_calendar_events, notion_today_tasks
+from notion_tools import (
+    notion_add_task,
+    notion_calendar_events,
+    notion_today_tasks,
+    notion_update_task,
+)
 from paper_tools import (
     add_interest_topic,
     recent_papers_for_interests,
@@ -42,6 +47,7 @@ class Brain:
                 capture_screen,
                 notion_today_tasks,
                 notion_add_task,
+                notion_update_task,
                 notion_calendar_events,
                 google_calendar_events,
                 google_calendar_add_event,
@@ -64,6 +70,7 @@ class Brain:
                 "mcp__kuromi__capture_screen",
                 "mcp__kuromi__notion_today_tasks",
                 "mcp__kuromi__notion_add_task",
+                "mcp__kuromi__notion_update_task",
                 "mcp__kuromi__notion_calendar_events",
                 "mcp__kuromi__google_calendar_events",
                 "mcp__kuromi__google_calendar_add_event",

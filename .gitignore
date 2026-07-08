@@ -8,5 +8,6 @@ google-calendar-key.json
 *.json.key
 owner.json
 
-# 런타임 로그
+# 런타임 로그 / 상태
 *.log
+nudge_state.json
