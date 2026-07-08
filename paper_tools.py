@@ -5,7 +5,9 @@
 TLS 프록시 대응은 net.py(truststore) — 이 모듈을 쓰는 프로세스가 먼저 import 할 것.
 """
 import asyncio
+import json
 import re
+from pathlib import Path
 
 import aiohttp
 
@@ -115,6 +117,64 @@ def _read_excluded():
     return _bullets(_EXCLUDED_H)
 
 
+# ──────────────── llm-wiki 유래 관심사 (interests.json, 가중치) ────────────────
+def _wiki_interests_path() -> Path:
+    return Path(load_config().wiki_path) / "interests.json"
+
+
+def _read_wiki_interests():
+    """llm-wiki/scan_interests.py 가 만든 interests.json 을 읽어
+    [{'tag','score'}, ...] 를 점수 내림차순으로 돌려준다. 없으면 []."""
+    try:
+        data = json.loads(_wiki_interests_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    topics = data.get("topics", [])
+    topics.sort(key=lambda t: t.get("score", 0), reverse=True)
+    return topics
+
+
+def _wiki_count(score: float, base: int) -> int:
+    """관심 점수가 높을수록 그 주제에서 더 많은 논문을 가져온다."""
+    if score >= 3.0:
+        return base + 2
+    if score >= 2.0:
+        return base + 1
+    return base
+
+
+def _build_query_plan(per: int, wiki_top: int):
+    """수동 '## PubMed queries' + interests.json(가중치) 를 합쳐 검색 계획을 만든다.
+    각 항목: {'label','term','count'}. 제외 주제/중복은 걸러낸다."""
+    excluded = [x.lower() for x in _read_excluded()]
+
+    def blocked(text: str) -> bool:
+        t = text.lower()
+        return any(x in t for x in excluded)
+
+    plan, seen_terms = [], set()
+
+    # 1) 사용자가 손으로 적은 쿼리 — 항상 포함, 기본 개수.
+    for q in _read_interest_queries():
+        if blocked(q) or q.lower() in seen_terms:
+            continue
+        plan.append({"label": q, "term": q, "count": per})
+        seen_terms.add(q.lower())
+
+    # 2) 위키 유래 관심사 — 점수 순으로 상위 wiki_top개, 점수로 개수 가중.
+    for it in _read_wiki_interests()[:wiki_top]:
+        tag = it.get("tag", "")
+        score = float(it.get("score", 0))
+        term = tag.replace("-", " ").strip()
+        if not term or blocked(term) or blocked(tag) or term.lower() in seen_terms:
+            continue
+        plan.append({"label": f"{term} ★{score:.1f}", "term": term,
+                     "count": _wiki_count(score, per)})
+        seen_terms.add(term.lower())
+
+    return plan, excluded
+
+
 def _add_bullet(header, item):
     lines = _lines()
     s, e = _bounds(lines, header)
@@ -168,17 +228,20 @@ async def search_pubmed(args):
 
 @tool(
     "recent_papers_for_interests",
-    "관심사 파일의 주제별로 PubMed 최근 논문을 모아온다(제외 주제는 걸러냄). "
-    "아침 브리핑/논문 추천에 사용. days(기본 14), per_topic(기본 4).",
-    {"days": int, "per_topic": int},
+    "관심사별로 PubMed 최근 논문을 모아온다. 수동 '## PubMed queries' 와 llm-wiki 유래 "
+    "관심사(interests.json, 점수 가중)를 합쳐 쓴다(제외 주제는 걸러냄). 점수 높은 주제일수록 "
+    "더 많이 가져옴. 아침 브리핑/논문 추천에 사용. days(기본 14), per_topic(기본 4), wiki_top(기본 10).",
+    {"days": int, "per_topic": int, "wiki_top": int},
 )
 async def recent_papers_for_interests(args):
     days = int(args.get("days") or 14)
     per = int(args.get("per_topic") or 4)
-    queries = _read_interest_queries()
-    excluded = [x.lower() for x in _read_excluded()]
-    if not queries:
-        return {"content": [{"type": "text", "text": "관심사 파일에 '## PubMed queries' 항목이 없어요."}]}
+    wiki_top = int(args.get("wiki_top") or 10)
+
+    plan, excluded = _build_query_plan(per, wiki_top)
+    if not plan:
+        return {"content": [{"type": "text",
+                             "text": "관심사가 비었어요. '## PubMed queries' 를 적거나 llm-wiki 를 쌓아주세요."}]}
 
     def _blocked(text):
         t = text.lower()
@@ -187,23 +250,23 @@ async def recent_papers_for_interests(args):
     blocks, seen = [], set()
     try:
         async with aiohttp.ClientSession() as s:
-            for q in queries:
-                if _blocked(q):
-                    continue
-                papers = await _esummary(s, await _esearch(s, q, days, per))
+            for item in plan:
+                papers = await _esummary(s, await _esearch(s, item["term"], days, item["count"]))
                 fresh = [p for p in papers
                          if p["pmid"] not in seen and not _blocked(p["title"])]
                 for p in fresh:
                     seen.add(p["pmid"])
                 if fresh:
-                    blocks.append(f"[{q}]\n" + _fmt(fresh))
+                    blocks.append(f"[{item['label']}]\n" + _fmt(fresh))
                 await asyncio.sleep(0.34)  # NCBI 예의 (초당 ≤3건)
     except Exception as e:
         return {"content": [{"type": "text", "text": f"[PubMed 오류] {e}"}]}
 
     if not blocks:
         return {"content": [{"type": "text", "text": f"최근 {days}일 관심사 관련 신규 논문이 없어요."}]}
-    return {"content": [{"type": "text", "text": f"최근 {days}일 관심사별 신규 논문:\n\n" + "\n\n".join(blocks)}]}
+    note = "(★ = llm-wiki 관심 점수)"
+    return {"content": [{"type": "text",
+                         "text": f"최근 {days}일 관심사별 신규 논문 {note}:\n\n" + "\n\n".join(blocks)}]}
 
 
 @tool(

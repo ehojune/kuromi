@@ -6,6 +6,7 @@ Windows 작업 스케줄러가 매일 08:30(꺼져 있었으면 켤 때) 한 번
 import asyncio
 import datetime as dt
 import os
+import subprocess
 import sys
 
 for _s in (sys.stdout, sys.stderr):
@@ -48,11 +49,35 @@ _PROMPT = """지금은 아침이야. 사용자에게 보낼 '오늘의 브리핑
 말투는 평소 쿠로미대로, 너무 길지 않게 핵심 위주로. 맨 앞에 짧은 인사와 오늘 날짜 한 줄."""
 
 
+def _refresh_wiki_interests(cfg) -> None:
+    """브리핑 전에 llm-wiki 관심사 프로파일(interests.json)을 새로 만든다.
+    scan_interests.py 는 외부 의존성이 없어 이 venv 파이썬으로 그대로 돌아간다.
+    실패해도 브리핑은 계속 진행한다(직전 interests.json 을 그냥 씀)."""
+    script = os.path.join(cfg.wiki_path, "scan_interests.py")
+    if not os.path.exists(script):
+        _log(f"[관심사] scan_interests.py 없음, 건너뜀: {script}")
+        return
+    try:
+        r = subprocess.run(
+            [sys.executable, script],
+            cwd=cfg.wiki_path, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=120,
+        )
+        if r.returncode == 0:
+            tail = (r.stdout or "").strip().splitlines()
+            _log("[관심사] 갱신 완료: " + (tail[-1] if tail else "ok"))
+        else:
+            _log(f"[관심사] 갱신 실패(rc={r.returncode}): {(r.stderr or '').strip()[:300]}")
+    except Exception as e:
+        _log(f"[관심사] 갱신 예외: {type(e).__name__}: {e}")
+
+
 async def main():
     open(_LOG, "w", encoding="utf-8").close()  # 매 실행 로그 새로 시작
     _log("브리핑 시작")
     ensure_claude_on_path()
     cfg = load_config()
+    _refresh_wiki_interests(cfg)  # 위키 관심사 → interests.json 최신화 (브리핑 반영)
     slack = AsyncWebClient(token=cfg.slack_bot_token)
 
     channel = load_owner().get("channel")
