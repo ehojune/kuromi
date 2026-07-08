@@ -40,7 +40,10 @@ def _log(msg: str) -> None:
 
 
 def collect_urgent(rows, today):
-    """마감이 지났거나(<0) 오늘(0)·내일(1)인 미완료 할 일을 마감 급한 순으로."""
+    """마감이 지났거나(<0) 오늘(0)·내일(1)인 미완료 할 일을 마감 급한 순으로.
+
+    Due 'YYYY-MM-DD' 는 그날 23:59까지를 뜻한다 → 날짜 단위 비교로 충분:
+    오늘==마감일이면 delta=0('오늘 마감', 아직 안 지남), 다음날부터 delta<0('지남')."""
     urgent = []
     for page in rows:
         p = page.get("properties", {})

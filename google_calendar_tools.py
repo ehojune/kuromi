@@ -97,17 +97,26 @@ def _parse_when(value: str, tz: str):
     return {"dateTime": value, "timeZone": tz}, False
 
 
+def _end_obj(value: str, tz: str) -> dict:
+    """종료 시점 dict. 종일(YYYY-MM-DD)이면 사용자가 준 날짜를 '포함되는 마지막 날'로 보고,
+    구글의 배타적 end.date 규칙에 맞춰 +1일 한다 (예: 9/3~9/5 → end.date=9/6, 3·4·5 포함).
+    시간 지정이면 그대로 사용."""
+    value = value.strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        nxt = dt.date.fromisoformat(value) + dt.timedelta(days=1)
+        return {"date": nxt.isoformat()}
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}", value):
+        value += ":00"
+    return {"dateTime": value, "timeZone": tz}
+
+
 def _add_event_sync(calendar_id, title, start, end, location, tz) -> dict:
     service = _service()
     s_obj, all_day = _parse_when(start, tz)
     if end:
-        e_obj, _ = _parse_when(end, tz)
-        if all_day and e_obj.get("date") == s_obj.get("date"):
-            nxt = dt.date.fromisoformat(e_obj["date"]) + dt.timedelta(days=1)
-            e_obj = {"date": nxt.isoformat()}  # 구글 종일 end.date 는 배타적
+        e_obj = _end_obj(end, tz)
     elif all_day:
-        nxt = dt.date.fromisoformat(start) + dt.timedelta(days=1)
-        e_obj = {"date": nxt.isoformat()}
+        e_obj = _end_obj(start, tz)  # 종일 단일: 시작일 '포함' → +1일
     else:
         base = dt.datetime.fromisoformat(s_obj["dateTime"])
         e_obj = {"dateTime": (base + dt.timedelta(hours=1)).isoformat(), "timeZone": tz}
@@ -242,7 +251,7 @@ async def google_calendar_update_event(args):
     if (v := (args.get("new_start") or "").strip()):
         body["start"], _ = _parse_when(v, tz)
     if (v := (args.get("new_end") or "").strip()):
-        body["end"], _ = _parse_when(v, tz)
+        body["end"] = _end_obj(v, tz)  # 종일 종료일은 '포함' 규칙 적용(+1일)
     if (v := (args.get("new_location") or "").strip()):
         body["location"] = v
     if not body:
