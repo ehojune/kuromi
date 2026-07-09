@@ -28,6 +28,7 @@ from owner import load_owner
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _STATE = os.path.join(_HERE, "nudge_state.json")
+_SNOOZE = os.path.join(_HERE, "nudge_snooze.json")
 _LOG = os.path.join(_HERE, "nudge.log")
 
 # 스케줄러는 정확히 3시간 간격(09/12/15/18/21시)으로 호출한다. 스케줄 지연/드리프트를
@@ -98,6 +99,20 @@ def _save_state(state):
         pass
 
 
+def snoozed_until(now):
+    """아파서/쉬는 날 등으로 오늘 남은 회차를 건너뛰고 싶을 때 쓰는 수동 스누즈.
+
+    nudge_snooze.json 에 {"until": "ISO시각"} 이 있고 아직 그 시각 전이면 이번 실행 전체를
+    건너뛴다(Notion 조회조차 안 함). 지나면 파일이 남아있어도 그냥 무시되고, 다음에 다시
+    스누즈하려면 새로 써주면 된다 — 매번 자동으로 재적용되는 옵션이 아니라 1회성."""
+    try:
+        data = json.loads(open(_SNOOZE, encoding="utf-8").read())
+        until = dt.datetime.fromisoformat(data["until"])
+    except (OSError, ValueError, KeyError):
+        return None
+    return until if now < until else None
+
+
 def pick_fresh(urgent, last_notified, now):
     """last_notified(할 일 제목 -> 마지막 알림 ISO 시각) 기준으로 지금 다시 알릴 것만 골라낸다.
 
@@ -118,6 +133,12 @@ def pick_fresh(urgent, last_notified, now):
 
 
 async def main():
+    now0 = dt.datetime.now()
+    until = snoozed_until(now0)
+    if until:
+        _log(f"스누즈 중({until.isoformat(timespec='minutes')}까지) — 조용히 종료")
+        return
+
     cfg = load_config()
     channel = load_owner().get("channel")
     if not channel and cfg.owner_slack_id:
