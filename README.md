@@ -7,8 +7,14 @@ Neuro-sama 처럼 **Slack** 에서 "쿠로미"라는 이름으로 대화하는 �
 - **화면 보기** — "내 화면 봐줘" 하면 스크린샷을 떠서 보고 답한다.
 - **지식베이스 참고** — `llm-wiki`(유전체학/유전학 논문 정리)를 읽어 근거 있는 답을 한다.
 - **보이스** — 답을 음성으로 읽어준다 (PC 스피커 재생 / Slack 음성파일 업로드).
+- **Notion 업무 관리** — [kobic] 우선순위 트래커 조회/추가/상태변경("~ 끝냈어" → Done 처리)까지 된다.
+- **구글 캘린더** — 일정 조회/등록/수정/삭제까지 직접 한다("내일 3시에 미팅 잡아줘" 등).
+- **매일 아침 브리핑 + 능동 마감 체크인** — 08:30 오늘 할 일·논문 요약 DM, 이후 깨어있는 시간대
+  (09/12/15/18/21시)엔 마감 임박 항목이 있을 때만 3시간 간격으로 조용히 찔러준다.
+- **최신 논문 스카우트** — PubMed 검색 + 위키 관심사 기반 추천, 관심 주제 추가/삭제도 대화로 가능.
 
-**나중에 붙일 것** (설계상 자리 마련됨): Notion 업무·일정 관리, 새 논문 브리핑.
+**나중에 붙일 것** (설계는 구상됐지만 아직 미구현): 위키 자동 편입 파이프라인(PDF → wiki 반자동 정리),
+쿠로미 전용 장기 기억 파일, Claude Science 대체용 서브에이전트(Cinnamoroll) — 자세한 건 `FEATURE_IDEAS.md` 참고.
 **말투·이름·캐릭터·보이스는 언제든 교체 가능** (`persona.py` / `.env`).
 
 ---
@@ -137,16 +143,33 @@ edge-tts --list-voices | findstr ko-KR
 
 매일 아침 **08:30**(PC 가 꺼져 있었으면 켠 뒤 바로) 쿠로미가 DM 으로 브리핑을 보낸다:
 1. **오늘 할 일** — Notion [kobic] 우선순위 트래커의 미완료 항목을 마감 순으로 정리 + 오늘 집중할 것 추천
-2. **오늘의 논문** — `research-interests.md` 의 주제로 PubMed 최근 논문을 찾아 추천 (관련 위키 있으면 링크)
+2. **오늘의 논문** — `research-interests.md` 의 주제(+ 위키에서 추출한 관심사)로 PubMed 최근 논문을 찾아 추천
 
-대화 중에도 "오늘 할 일 뭐야?", "○○ 할일 추가해줘", "이번 주 STR 논문 있어?" 처럼 쓸 수 있다.
+대화 중에도 "오늘 할 일 뭐야?", "○○ 할일 추가해줘", "○○ 끝냈어", "이번 주 STR 논문 있어?",
+"내일 3시에 미팅 잡아줘", "그 일정 취소해줘", "○○ 분야도 챙겨줘" 처럼 쓸 수 있다.
 
 **구성 요소**
-- `notion_tools.py` — 트래커 읽기(`notion_today_tasks`)/쓰기(`notion_add_task`)
-- `paper_tools.py` — PubMed 검색(`search_pubmed`, `recent_papers_for_interests`)
-- `research-interests.md` — 논문 검색 주제 (이 파일만 고치면 관심사 변경)
+- `notion_tools.py` — 트래커 읽기(`notion_today_tasks`)/추가(`notion_add_task`)/상태변경(`notion_update_task`)
+- `google_calendar_tools.py` — 캘린더 조회(`google_calendar_events`)/등록/수정/삭제
+- `paper_tools.py` — PubMed 검색(`search_pubmed`, `recent_papers_for_interests`) + 관심사 추가/삭제(`add_interest_topic`, `remove_interest_topic`)
+- `research-interests.md` — 논문 검색 주제 (직접 고치거나 대화로 추가/삭제)
 - `daily_briefing.py` — 브리핑 작성 후 DM 전송 (작업 스케줄러 `KuromiDailyBriefing` 가 08:30 실행)
+- `nudge_check.py` — 능동 마감 체크인(아래 별도 섹션 참고)
 - `net.py` — 회사 TLS 검사 프록시 대응(truststore). Slack/PubMed/Notion HTTPS 통과에 필요
+
+### 능동 마감 체크인 (nudge_check.py)
+
+브리핑은 하루 한 번뿐이라 급한 마감이 낮 동안 묻힐 수 있어서, 깨어있는 시간대
+(**09/12/15/18/21시**, Windows 작업 스케줄러 `KuromiNudgeCheck`)마다 Notion 트래커를 가볍게
+훑어 **오늘/내일 마감이거나 이미 지난** 미완료 항목이 있을 때만 짧은 DM 을 보낸다. Claude 를
+부르지 않는 순수 로직이라 가볍고 안정적이다.
+
+- **스팸 방지**: 같은 할 일은 완료 처리될 때까지 최소 ~2시간50분 간격으로만 재알림한다
+  (`nudge_state.json` 에 할 일별 마지막 알림 시각 기록). 알릴 게 없으면 조용히 로그만 남기고 종료.
+- **수동 스누즈**: 아프거나 쉬고 싶은 날, `nudge_snooze.json` 에 `{"until": "ISO시각", "reason": "..."}`
+  을 써두면 그 시각까지 실행 자체를 건너뛴다(Notion 조회조차 안 함). 1회성이라 지나면 자동으로
+  무시되고, 다음에 또 쓰려면 새로 써주면 된다.
+- 로그: `nudge.log`. 수동 테스트: `start_nudge.bat`/`start_nudge.vbs`.
 
 **Notion 연결 (1회 설정)**
 1. <https://www.notion.so/my-integrations> → **New integration** (Internal) → 이름 `Kuromi` →
@@ -157,8 +180,9 @@ edge-tts --list-voices | findstr ko-KR
 5. (선택) `.env` 의 `NCBI_EMAIL` 에 이메일 넣으면 PubMed 예의상 좋음
 
 **참고**
-- 일정은 이제 **구글 캘린더를 직접** 읽는다(`google_calendar_events`, 아래 "구글 캘린더 연결" 참고).
-  Notion 일정 미러 DB(`notion_calendar_events`)는 예비용으로 남겨뒀지만 기본 브리핑은 구글 캘린더 우선.
+- 일정은 이제 **구글 캘린더를 직접** 읽고 쓴다(`google_calendar_events`/`_add_event`/`_update_event`/
+  `_delete_event`, 아래 "구글 캘린더 연결" 참고). Notion 일정 미러 DB(`notion_calendar_events`)는
+  예비용으로 남겨뒀지만 기본 일정 관리는 구글 캘린더 우선.
 - 브리핑 로그: `briefing.log`. 수동 테스트: `start_briefing.vbs` 더블클릭.
 
 **구글 캘린더 연결 (1회 설정, 서비스 계정 방식 — 로그인 갱신 필요 없음)**
@@ -170,7 +194,8 @@ edge-tts --list-voices | findstr ko-KR
    `kuromi` 폴더 안에 두고(예: `google-calendar-key.json`), `.gitignore` 에 있는지 확인
 4. 서비스 계정 이메일 확인 (`...@...iam.gserviceaccount.com` 형태, 콘솔에 표시됨)
 5. Google Calendar(캘린더 앱, 또는 calendar.google.com) → 보고 싶은 캘린더 **설정 →
-   특정 사용자와 공유** → 위 서비스 계정 이메일을 추가, 권한은 "일정 세부정보 보기"면 충분
+   특정 사용자와 공유** → 위 서비스 계정 이메일을 추가, 등록/수정/삭제까지 하려면 권한을
+   "일정 변경" 이상으로 줘야 함(보기 전용이면 조회만 되고 쓰기는 실패)
 6. `.env` 에 추가:
    ```ini
    GOOGLE_CALENDAR_CREDENTIALS_PATH=C:\Users\admin\kuromi\google-calendar-key.json
