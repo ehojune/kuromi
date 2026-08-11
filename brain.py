@@ -13,6 +13,7 @@ from claude_agent_sdk import (
     ClaudeAgentOptions,
     ClaudeSDKClient,
     TextBlock,
+    ToolUseBlock,
     create_sdk_mcp_server,
 )
 
@@ -60,6 +61,18 @@ _STATUS_SIGNS = (
     ("usage limit", _LIMIT_NOTICE),
 )
 _MAX_STATUS_LEN = 200  # 상태 메시지는 짧다. 이보다 길면 진짜 답변으로 본다.
+
+# 바깥 세계를 바꾸는 도구들. 이게 한 번이라도 불린 뒤에 실패하면 같은 프롬프트를
+# 재생하면 안 된다 — 노션 할 일이나 일정이 중복 생성된다.
+_WRITE_TOOLS = frozenset({
+    "mcp__kuromi__notion_add_task",
+    "mcp__kuromi__notion_update_task",
+    "mcp__kuromi__google_calendar_add_event",
+    "mcp__kuromi__google_calendar_update_event",
+    "mcp__kuromi__google_calendar_delete_event",
+    "mcp__kuromi__add_interest_topic",
+    "mcp__kuromi__remove_interest_topic",
+})
 
 
 def _status_notice(text: str) -> str | None:
@@ -142,15 +155,26 @@ class Brain:
     async def ask(self, key: str, prompt: str) -> str:
         """스레드(key) 컨텍스트를 유지한 채 한 번의 왕복을 처리해 텍스트 답을 반환."""
         async with self._lock(key):
+            used: set[str] = set()
             try:
-                return await self._round_trip(key, prompt)
+                return await self._round_trip(key, prompt, used)
             except Exception:
                 # 리더가 한 번 죽은 클라이언트는 스트림이 닫혀 재사용이 안 된다.
-                # 버리고 새 세션으로 한 번만 재시도한다(그 스레드의 맥락은 잃는다).
                 await self._drop(key)
-                return await self._round_trip(key, prompt)
 
-    async def _round_trip(self, key: str, prompt: str) -> str:
+                # 쓰기 도구가 이미 불렸다면 재생이 위험하다. 실패한 채로 알린다.
+                wrote = sorted(used & _WRITE_TOOLS)
+                if wrote:
+                    raise RuntimeError(
+                        "요청 처리 중에 연결이 끊겼어. "
+                        f"이미 {', '.join(t.rsplit('__', 1)[-1] for t in wrote)} 를 실행한 뒤라 "
+                        "중복 생성될까 봐 다시 시도하지 않았어. 결과를 직접 확인해줘."
+                    ) from None
+
+                # 읽기만 했으면 새 세션으로 한 번 재시도(그 스레드의 맥락은 잃는다).
+                return await self._round_trip(key, prompt, set())
+
+    async def _round_trip(self, key: str, prompt: str, used: set[str]) -> str:
         client = await self._client(key)
         await client.query(prompt)
 
@@ -160,6 +184,10 @@ class Brain:
                 for block in msg.content:
                     if isinstance(block, TextBlock):
                         parts.append(block.text)
+                    elif isinstance(block, ToolUseBlock):
+                        # 완료 여부는 알 수 없다. 불린 것만으로 실행된 걸로 보고
+                        # 보수적으로 판단한다 — 중복 생성보다 재시도 포기가 낫다.
+                        used.add(block.name)
 
         reply = "".join(parts).strip()
         notice = _status_notice(reply)
