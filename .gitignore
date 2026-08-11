@@ -4,6 +4,8 @@ __pycache__/
 
 # 비밀값 — 실제 토큰/키가 들어있는 파일들
 .env
+.env.bak
+.env.local
 google-calendar-key.json
 *.json.key
 owner.json
