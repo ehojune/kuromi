@@ -46,7 +46,7 @@ def load_config() -> Config:
         slack_bot_token=_get("SLACK_BOT_TOKEN", required=True),
         slack_app_token=_get("SLACK_APP_TOKEN", required=True),
         assistant_name=_get("ASSISTANT_NAME", "쿠로미"),
-        model=_get("KUROMI_MODEL", "claude-opus-4-8"),
+        model=_get("KUROMI_MODEL", "claude-sonnet-5-5"),
         voice_mode=_get("VOICE_MODE", "local").lower(),
         voice_name=_get("VOICE_NAME", "ko-KR-SunHiNeural"),
         voice_max_chars=int(_get("VOICE_MAX_CHARS", "300")),

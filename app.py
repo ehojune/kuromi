@@ -129,6 +129,7 @@ async def main():
 
     handler = AsyncSocketModeHandler(app, config.slack_app_token)
     print(f"🖤 {config.assistant_name} 켜짐. Slack 에서 DM 하거나 멘션해줘. (Ctrl+C 종료)")
+    print(f"Claude model: {config.model}")
     try:
         await handler.start_async()
     finally:
