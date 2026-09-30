@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 from pakuri_context import read_briefing_context, render_context
-from pakuri_tools import post_briefing
+from pakuri_tools import post_briefing, _delivery_lock
 
 NOW = datetime(2026, 10, 1, 0, tzinfo=timezone.utc)
 
@@ -29,6 +29,7 @@ class ContextTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         (self.root / "data").mkdir()
+        (self.root / "data/state.sqlite3.lock").write_bytes(b"0")
         self.people = [{"login": "alice", "name": "Alice Example", "topics": ["genomics"],
             "verification": {"status": "verified", "account_type": "User", "checked_at": "2026-10-01",
                 "affiliation": {"status": "verified_primary_source", "current": "Example University, researcher",
@@ -79,6 +80,37 @@ class ContextTests(unittest.TestCase):
         self.read()
         self.assertEqual(before, [hashlib.sha256(p.read_bytes()).hexdigest() for p in paths])
         self.assertFalse((self.root / "data/kuromi-delivery.json").exists())
+
+    def test_closed_wal_database_does_not_create_sidecars_in_original_directory(self):
+        path = self.root / "data/state.sqlite3"
+        with closing(sqlite3.connect(path)) as db:
+            db.execute("PRAGMA journal_mode=WAL")
+        self.assertFalse(path.with_name(path.name + "-wal").exists())
+        before = {p.name: p.read_bytes() for p in (self.root / "data").iterdir()}
+        self.assertEqual(self.read()["two_week"]["status"], "ok")
+        after = {p.name: p.read_bytes() for p in (self.root / "data").iterdir()}
+        self.assertEqual(before, after)
+
+    def test_uncheckpointed_wal_commit_is_visible_without_modifying_original_files(self):
+        path = self.root / "data/state.sqlite3"
+        with closing(sqlite3.connect(path)) as writer:
+            writer.execute("PRAGMA journal_mode=WAL")
+            writer.execute("PRAGMA wal_autocheckpoint=0")
+            row = record("wal", repo="bob/second", topics=["agents"])
+            writer.execute("INSERT INTO items VALUES (?,?,?,?)", (
+                row["id"], json.dumps(row), row["published_at"], row["observed_at"]))
+            writer.commit()
+            before = {p.name: p.read_bytes() for p in (self.root / "data").iterdir()}
+            context = self.read()
+            self.assertEqual(context["two_week"]["active_repositories"], 2)
+            after = {p.name: p.read_bytes() for p in (self.root / "data").iterdir()}
+            self.assertEqual(before, after)
+
+    def test_active_collector_lock_does_not_copy_inconsistent_history(self):
+        with _delivery_lock(self.root / "data/state.sqlite3.lock"):
+            context = self.read()
+        self.assertEqual(context["two_week"]["status"], "busy")
+        self.assertEqual(context["spotlight"]["recent_activity"], [])
 
     def test_rotation_changes_only_at_korean_midnight(self):
         self.people.append({**self.people[0], "login": "bob", "name": "Bob"})

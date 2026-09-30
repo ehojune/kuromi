@@ -1,11 +1,14 @@
 """Read-only fortnight trends and a daily profile from the private Pakuri store."""
 from collections import defaultdict
-from contextlib import closing
+from contextlib import closing, contextmanager
 from datetime import datetime, timedelta, timezone
 import json
+import os
 from pathlib import Path
 import re
+import shutil
 import sqlite3
+import tempfile
 import time
 from urllib.parse import urlsplit
 
@@ -38,6 +41,10 @@ _TOPICS = {
     "data-formats": "데이터 형식", "formats": "데이터 형식", "sequence-tools": "서열 도구",
     "graph-genomics": "그래프 유전체", "ai": "AI",
 }
+
+
+class CollectorBusy(OSError):
+    pass
 
 
 def _path(root, name):
@@ -90,16 +97,51 @@ def _targets(root):
     return list(unique.values()), repo_topics
 
 
-def _history(root, now):
-    """Read the WAL-aware database without checkpoints, migrations or writes."""
+@contextmanager
+def _snapshot(root):
+    """Copy DB+WAL under the collector's existing lock; SQLite only opens the copy."""
     path = _path(root, "data/state.sqlite3")
+    wal = _path(root, "data/state.sqlite3-wal")
+    guard = _path(root, "data/state.sqlite3.lock")
     if not path.is_file():
         raise FileNotFoundError(path)
+    with tempfile.TemporaryDirectory(prefix="kuromi-pakuri-") as directory:
+        copied = Path(directory) / "snapshot.sqlite3"
+        # Never create a lock file or open SQLite on the original. All Pakuri writers
+        # hold this exclusive byte/flock lock through their final close/checkpoint.
+        with guard.open("rb") as handle:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBRLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
+            except OSError as exc:
+                raise CollectorBusy("collector_in_progress") from exc
+            try:
+                for source, destination in ((path, copied), (wal, copied.with_name(copied.name + "-wal"))):
+                    if source.is_file():
+                        if source.stat().st_size > 128_000_000:
+                            raise ValueError("snapshot_too_large")
+                        shutil.copyfile(source, destination)
+            finally:
+                if os.name == "nt":
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        with closing(sqlite3.connect(copied.as_uri() + "?mode=ro", uri=True, timeout=1)) as db:
+            db.execute("PRAGMA query_only=ON")
+            yield db
+
+
+def _history(root, now):
+    """Read the WAL-aware database without checkpoints, migrations or writes."""
     cutoff = now - timedelta(days=14)
     deadline = time.monotonic() + 2
-    with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=1)) as db:
+    with _snapshot(root) as db:
         try:
-            db.execute("PRAGMA query_only=ON")
             db.set_progress_handler(lambda: int(time.monotonic() > deadline), 10_000)
             observed_since = db.execute("SELECT min(observed_at) FROM items").fetchone()[0]
             observed_since = _time(observed_since).isoformat() if observed_since else None
@@ -137,8 +179,7 @@ def _related_updates(root, projects, now):
     """A repository push says the project changed, not who authored that change."""
     updates = []
     try:
-        path = _path(root, "data/state.sqlite3")
-        with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=1)) as db:
+        with _snapshot(root) as db:
             for project in projects[:2]:
                 record = db.execute("SELECT body FROM repositories WHERE name=?",
                                     (project["repo"].casefold(),)).fetchone()
@@ -224,6 +265,8 @@ def read_briefing_context(project_path, *, now=None, activity=None):
         history = {"status": status, "window_days": 14, "observed_since": observed_since,
                    "initial_records": sum(row["baseline"] for row in rows),
                    "rejected_items": invalid, "truncated": truncated, **_fields(rows, repo_topics)}
+    except CollectorBusy:
+        history["status"] = "busy"
     except FileNotFoundError:
         pass
     except (OSError, sqlite3.Error, ValueError, TypeError, AttributeError, OverflowError, RecursionError):
@@ -245,6 +288,8 @@ def render_context(context, *, existing_text=""):
             lines.append(f"추적 시작 {_time(since).astimezone(_KST):%m/%d} · 과거 공개 기록 포함 · 분야 중복 집계")
         if history["status"] == "partial":
             lines.append("최근 2주 집계는 일부 기록만 포함합니다.")
+    elif history.get("status") == "busy":
+        lines.append("최근 2주 집계: 수집 중이라 이번 조회에서는 생략했습니다.")
     else:
         lines.append("최근 2주 집계: 저장 기록을 확인하지 못했습니다.")
     if not person:
