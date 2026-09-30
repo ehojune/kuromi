@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {"id": "anthropic-news", "name": "Anthropic Newsroom", "url": "https://www.anthropic.com/news", "format": "anthropic_html", "category": "releases", "type": "official_announcement"},
+    {"id": "claude-code", "name": "Claude Code releases", "url": "https://github.com/anthropics/claude-code/releases.atom", "format": "feed", "category": "releases", "type": "official_release"},
+    {"id": "openai-news", "name": "OpenAI News", "url": "https://openai.com/news/rss.xml", "format": "feed", "category": "releases", "type": "official_announcement"},
+    {"id": "cursor-changelog", "name": "Cursor changelog", "url": "https://cursor.com/changelog/rss.xml", "format": "feed", "category": "releases", "type": "official_release"},
+    {"id": "kimi-cli", "name": "MoonshotAI Kimi CLI releases", "url": "https://github.com/MoonshotAI/kimi-cli/releases.atom", "format": "feed", "category": "kimi", "type": "official_release"},
+    {"id": "kimi-news", "name": "Google News: Kimi / Moonshot", "query": "Kimi Moonshot AI", "format": "google_news", "language": "en", "category": "kimi", "type": "news_article", "title_groups": [["kimi", "moonshot"]]},
+    {"id": "geeknews", "name": "GeekNews", "url": "https://news.hada.io/rss/news", "format": "feed", "category": "geeknews", "type": "community_news", "match": ["ai", "llm", "agent", "claude", "gpt", "openai", "anthropic", "kimi", "인공지능", "에이전트", "독파모"]},
+    {"id": "simon-willison", "name": "Simon Willison", "url": "https://simonwillison.net/atom/everything/", "format": "feed", "category": "user_reviews", "type": "expert_opinion", "match": ["ai", "llm", "agent", "claude", "gpt", "openai", "anthropic", "kimi", "astra"]},
+    {"id": "astra-reviews", "name": "Google News: GPT Astra reviews", "query": "\"GPT\" \"Astra\" (\"hands-on\" OR \"user review\" OR experience OR benchmark)", "format": "google_news", "language": "en", "category": "user_reviews", "type": "review_search_result", "title_groups": [["astra"], ["review", "experience", "benchmark", "tested", "hands-on", "comparison", "후기", "리뷰", "비교"]], "exclude_title": ["safety review", "security review"]},
+    {"id": "techcrunch-ai", "name": "TechCrunch AI", "url": "https://techcrunch.com/category/artificial-intelligence/feed/", "format": "feed", "category": "articles", "type": "news_article"},
+    {"id": "the-verge-ai", "name": "The Verge AI", "url": "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml", "format": "feed", "category": "articles", "type": "news_article"},
+    {"id": "ai-articles", "name": "Google News: AI industry", "query": "\"artificial intelligence\" (model OR agent OR release OR industry)", "format": "google_news", "language": "en", "category": "articles", "type": "news_article"},
+    {"id": "us-ai-policy", "name": "Google News: US AI policy / SI", "query": "Trump (\"artificial intelligence\" OR \"superintelligence\" OR \"SI\")", "format": "google_news", "language": "en", "category": "policy_us", "type": "policy_news"},
+    {"id": "korea-ai-policy", "name": "Google News: 독파모", "query": "독파모 OR \"독자 AI 파운데이션 모델\"", "format": "google_news", "language": "ko", "category": "policy_kr", "type": "policy_news"},
+    {"id": "multiagent-surveys", "name": "arXiv: LLM multi-agent surveys", "url": "https://export.arxiv.org/api/query", "query": "(all:\"multi-agent\" OR all:multiagent) AND (ti:survey OR ti:review) AND (all:\"large language\" OR all:LLM)", "format": "arxiv", "category": "research", "type": "research_preprint"}
+  ]
+}

@@ -36,6 +36,8 @@ from paper_tools import (
     search_pubmed,
 )
 from persona import build_system_prompt
+from ai_news_tools import recent_ai_news, search_ai_news
+from pakuri_tools import pakuri_activity
 from tools import capture_screen
 
 # SDK 기본 상한은 1MB 라, 큰 화면 캡처나 큰 파일 Read 한 번에 메시지 리더가 죽고
@@ -107,6 +109,9 @@ class Brain:
                 recent_papers_for_interests,
                 add_interest_topic,
                 remove_interest_topic,
+                recent_ai_news,
+                search_ai_news,
+                pakuri_activity,
             ],
         )
 
@@ -130,6 +135,9 @@ class Brain:
                 "mcp__kuromi__recent_papers_for_interests",
                 "mcp__kuromi__add_interest_topic",
                 "mcp__kuromi__remove_interest_topic",
+                "mcp__kuromi__recent_ai_news",
+                "mcp__kuromi__search_ai_news",
+                "mcp__kuromi__pakuri_activity",
             ],
             permission_mode="bypassPermissions",  # 헤드리스라 승인창이 없음
             cwd=config.wiki_path,                  # 파일 도구 기준 경로 = 위키

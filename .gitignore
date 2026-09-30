@@ -14,3 +14,5 @@ owner.json
 *.log
 nudge_state.json
 nudge_snooze.json
+briefing_trends_state.json
+briefing_trends_state.tmp
