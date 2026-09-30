@@ -13,6 +13,7 @@ import re
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 import xml.etree.ElementTree as ET
 
+import net  # noqa: F401 — install Windows trust store before aiohttp caches SSL contexts.
 import aiohttp
 from claude_agent_sdk import tool
 
@@ -391,7 +392,6 @@ def main():
     parser.add_argument("--query")
     parser.add_argument("--json", action="store_true", help="Print complete machine-readable evidence")
     args = parser.parse_args()
-    import net  # Windows trust store, without loading Slack/Claude configuration.
     data = asyncio.run(collect_ai_news(args.days, args.max_results, args.query))
     if args.json:
         print(json.dumps(data, ensure_ascii=False, indent=2))
