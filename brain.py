@@ -37,7 +37,7 @@ from paper_tools import (
 )
 from persona import build_system_prompt
 from ai_news_tools import recent_ai_news, search_ai_news
-from pakuri_tools import pakuri_activity
+from pakuri_tools import build_pakuri_tool
 from tools import capture_screen
 
 # SDK 기본 상한은 1MB 라, 큰 화면 캡처나 큰 파일 Read 한 번에 메시지 리더가 죽고
@@ -92,6 +92,9 @@ class Brain:
     def __init__(self, config):
         self.config = config
 
+        pakuri_enabled = bool(config.pakuri_path)
+        pakuri_tools = [build_pakuri_tool(config.pakuri_path)] if pakuri_enabled else []
+
         server = create_sdk_mcp_server(
             name="kuromi",
             version="1.0.0",
@@ -111,8 +114,7 @@ class Brain:
                 remove_interest_topic,
                 recent_ai_news,
                 search_ai_news,
-                pakuri_activity,
-            ],
+            ] + pakuri_tools,
         )
 
         self.options = ClaudeAgentOptions(
@@ -137,8 +139,7 @@ class Brain:
                 "mcp__kuromi__remove_interest_topic",
                 "mcp__kuromi__recent_ai_news",
                 "mcp__kuromi__search_ai_news",
-                "mcp__kuromi__pakuri_activity",
-            ],
+            ] + (["mcp__kuromi__pakuri_activity"] if pakuri_enabled else []),
             permission_mode="bypassPermissions",  # 헤드리스라 승인창이 없음
             cwd=config.wiki_path,                  # 파일 도구 기준 경로 = 위키
             setting_sources=[],                    # 위키의 CLAUDE.md 자동로드 방지(페르소나 보호)

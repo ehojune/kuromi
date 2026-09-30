@@ -22,6 +22,8 @@ from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp
 
 from brain import Brain
+from briefing import generate_briefing, is_briefing_request
+from briefing_trends import deliver_briefing
 from cli import ensure_claude_on_path
 from config import load_config
 from owner import save_owner
@@ -58,15 +60,23 @@ async def _process(event: dict, client):
             pass
 
     await react("hourglass_flowing_sand", add=True)
+    offered = None
     try:
-        reply = await brain.ask(key, text)
+        if is_briefing_request(text):
+            reply, offered = await generate_briefing(brain, config, key=key, manual=True, request=text)
+        else:
+            reply = await brain.ask(key, text)
     except Exception as e:  # 모델/도구 오류를 사용자에게 정직하게
         reply = f"미안, 처리 중에 문제가 생겼어: {e}"
     finally:
         await react("hourglass_flowing_sand", add=False)
 
     reply = reply or "…(지금은 할 말이 없네)"
-    await client.chat_postMessage(channel=channel, thread_ts=reply_thread_ts, text=reply)
+    if offered is not None:
+        await deliver_briefing(client, channel=channel, thread_ts=reply_thread_ts, text=reply,
+                               offered=offered, project_path=config.pakuri_path, consume=False)
+    else:
+        await client.chat_postMessage(channel=channel, thread_ts=reply_thread_ts, text=reply)
 
     try:
         await voice.speak(reply, slack_client=client, channel=channel, thread_ts=reply_thread_ts)
