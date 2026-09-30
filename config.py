@@ -38,6 +38,7 @@ class Config:
     interests_path: str       # 관심사 파일 경로
     google_calendar_credentials_path: str  # (선택) 구글 캘린더 서비스 계정 JSON 키 경로
     google_calendar_id: str                # (선택) 구글 캘린더 ID (본인 Gmail 또는 "primary")
+    pakuri_path: str = ""                  # (선택) 공개 GitHub 활동 수집 프로젝트
 
 
 def load_config() -> Config:
@@ -58,4 +59,5 @@ def load_config() -> Config:
         interests_path=_get("INTERESTS_PATH", str(_HERE / "research-interests.md")),
         google_calendar_credentials_path=_get("GOOGLE_CALENDAR_CREDENTIALS_PATH", ""),
         google_calendar_id=_get("GOOGLE_CALENDAR_ID", ""),
+        pakuri_path=_get("PAKURI_PATH", ""),
     )
