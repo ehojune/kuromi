@@ -240,7 +240,8 @@ class AsyncCollectionTests(unittest.IsolatedAsyncioTestCase):
             got = await news.collect_ai_news(sources=[source(str(i)) for i in range(30)], now=NOW)
         self.assertEqual(calls, news._MAX_SOURCES)
         self.assertLessEqual(peak, 4)
-        self.assertFalse(got["partial_failure"])
+        self.assertTrue(got["partial_failure"])
+        self.assertEqual(sum(x.get("reason") == "source_limit" for x in got["sources"]), 30 - news._MAX_SOURCES)
 
     async def test_custom_query_only_public_search_sources(self):
         configs = []

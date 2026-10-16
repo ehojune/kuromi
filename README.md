@@ -1,5 +1,7 @@
 # 🖤 쿠로미 — 개인 AI 비서
 
+[![패치노트](https://img.shields.io/badge/%ED%8C%A8%EC%B9%98%EB%85%B8%ED%8A%B8-changelog-5B5BD6)](patch_notes/README.md)
+
 Neuro-sama 처럼 **Slack** 에서 "쿠로미"라는 이름으로 대화하는 개인 비서.
 지금은 이렇게 동작한다:
 
@@ -144,7 +146,7 @@ edge-tts --list-voices | findstr ko-KR
 매일 아침 **08:30**(PC 가 꺼져 있었으면 켠 뒤 바로) 쿠로미가 DM 으로 브리핑을 보낸다:
 1. **오늘 할 일** — Notion [kobic] 우선순위 트래커의 미완료 항목을 마감 순으로 정리 + 오늘 집중할 것 추천
 2. **오늘의 논문** — `research-interests.md` 의 주제(+ 위키에서 추출한 관심사)로 PubMed 최근 논문을 찾아 추천
-3. **AI 동향** — 공식 릴리스·사용 후기·GeekNews·Kimi·멀티에이전트 리뷰·미국/한국 AI 정책 중 2~3개. 날짜와 링크를 붙이고 출처 종류를 구분한다.
+3. **AI 동향** — 공식 릴리스·사용 후기·GeekNews·Kimi·멀티에이전트 리뷰·미국/한국 AI 정책·인물·문화·논쟁 중 2~3개. 문화 화제는 그중 최대 한 자리만 쓴다. 같은 화제의 재보도는 묶고 날짜·링크·출처 종류를 붙인다.
 4. **Pakuri** — 업데이트된 저장소, 최근 2주 활동 분야, 하루 한 계정 소개(이름·소속·대표 작업·최근 개발)를 붙인다. 첫 관측과 새 변경을 구분한다.
 
 대화에서는 “요즘 AI 동향”, “GPT Astra 후기 찾아줘”, “GitHub 개발 동향”으로 요청한다. 새 도구는 `recent_ai_news`, `search_ai_news`, `pakuri_activity`. 수집은 무료 공개 피드/API를 쓰며 출처 오류는 별도로 표시한다.

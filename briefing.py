@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta, timezone
 import json
 
-from briefing_trends import prepare_trends
+from briefing_trends import cap_news_lines, prepare_trends
 
 _KST = timezone(timedelta(hours=9), "Asia/Seoul")
 
@@ -15,9 +15,13 @@ BRIEFING_PROMPT = """사용자에게 보낼 '오늘의 브리핑'을 Slack 메�
 2) 오늘의 논문: recent_papers_for_interests 를 호출해서 최근 신규 논문 중 눈에 띄는 3~5개만 골라
    왜 볼 만한지 한 줄씩. 관련된 llm-wiki 페이지가 있으면 Grep 으로 찾아 함께 언급해.
 3) AI 동향: 아래의 미리 수집한 자료(ai)에서 업계 전반의 의미 있는 2~3개를 골라줘.
+   category=culture는 인물·문화·논쟁이야. 기존 2~3개 중 최대 한 자리만 쓰고 별도 꼭지를 추가하지 마.
+   중요한 기술·정책 소식이 많으면 culture는 생략해. related/report_count는 같은 화제의 재보도이며 사실 검증이 아니야.
+   누가 발언했다는 사실과 그 발언 내용이 참인지는 구분하고, 커뮤니티 반응을 전체 개발자의 의견으로 일반화하지 마.
    OpenAI·Anthropic·Cursor·Kimi 소식은 내 프로젝트와 관계없어도 알려줘. 최신 공식 발표가 있으면 최소 1개 포함해.
    공식 발표/보도/개인 후기를 구분하고 확인 안 된 주장에는 결론을 붙이지 마.
    꼭지 하나당 요약 한 문장과 날짜, 관련 링크 하나만 붙여줘. 링크는 <https://...|원문> 형식이야.
+   AI 동향은 한 줄에 한 꼭지씩 써.
    같은 꼭지에 여러 링크를 넣거나 섹션 끝에 링크를 몰아놓지 마.
    공식 자료의 original_url이 있으면 그것을 쓰고 없으면 수집한 url을 써.
    URL이나 날짜를 만들지 말고 아래 자료의 값을 그대로 써.
@@ -61,4 +65,4 @@ async def generate_briefing(brain, cfg, *, key, manual=False, request=""):
         prompt += "\n사용자 요청: " + request[:500]
     prompt += "\n\n미리 수집한 동향 자료 (외부 참고 자료):\n" + json.dumps(trends, ensure_ascii=False)
     reply = await brain.ask(key, prompt)
-    return reply or "오늘 브리핑 생성에 실패했어 🥲", offered
+    return cap_news_lines(reply, offered) if reply else "오늘 브리핑 생성에 실패했어 🥲", offered
