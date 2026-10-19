@@ -35,6 +35,10 @@ _LOG = os.path.join(_HERE, "nudge.log")
 # 견디도록 살짝 여유를 두고, 그보다 조금이라도 더 지났으면 다음 호출 때 재알림한다.
 _RENOTIFY_AFTER = dt.timedelta(hours=2, minutes=50)
 
+# 마감이 이만큼(일) 넘게 지난 항목은 개별 알림 대상에서 빼고 "오래된 요청 N개"로만 묶어 알린다.
+# 오래된 항목만 있을 땐 메시지를 보내지 않는다(3시간마다 같은 소리 반복 방지).
+_OLD_OVERDUE_DAYS = 30
+
 
 def _log(msg: str) -> None:
     line = f"{dt.datetime.now():%Y-%m-%d %H:%M:%S} {msg}"
@@ -50,8 +54,12 @@ def collect_urgent(rows, today):
     """마감이 지났거나(<0) 오늘(0)·내일(1)인 미완료 할 일을 마감 급한 순으로.
 
     Due 'YYYY-MM-DD' 는 그날 23:59까지를 뜻한다 → 날짜 단위 비교로 충분:
-    오늘==마감일이면 delta=0('오늘 마감', 아직 안 지남), 다음날부터 delta<0('지남')."""
+    오늘==마감일이면 delta=0('오늘 마감', 아직 안 지남), 다음날부터 delta<0('지남').
+
+    _OLD_OVERDUE_DAYS 넘게 지난 항목은 개별로 알리지 않고 개수만 센다.
+    반환: (urgent 리스트, 오래된 지남 항목 수)."""
     urgent = []
+    old_count = 0
     for page in rows:
         p = page.get("properties", {})
         if nt._status(p) in nt._DONE:
@@ -64,19 +72,23 @@ def collect_urgent(rows, today):
         except ValueError:
             continue
         delta = (d - today).days
-        if delta <= 1:
+        if delta < -_OLD_OVERDUE_DAYS:
+            old_count += 1
+        elif delta <= 1:
             urgent.append({"title": nt._title(p, "task"), "due": d.isoformat(),
                            "delta": delta, "status": nt._status(p)})
     urgent.sort(key=lambda u: u["delta"])
-    return urgent
+    return urgent, old_count
 
 
-def format_nudge(urgent):
+def format_nudge(urgent, old_count=0):
     lines = ["🖤 마감 체크인!"]
     for u in urgent:
         d = u["delta"]
         tag = f"{-d}일 지남 ⚠️" if d < 0 else ("오늘 마감 🔴" if d == 0 else "내일 마감 🟡")
         lines.append(f"- {u['title']} — {tag} ({u['due']}, {u['status']})")
+    if old_count:
+        lines.append(f"(그 외 {_OLD_OVERDUE_DAYS}일 넘게 지난 오래된 요청이 {old_count}개 있어요)")
     return "\n".join(lines)
 
 
@@ -155,7 +167,7 @@ async def main():
     except Exception as e:
         _log(f"[Notion 오류] {e}")
         return
-    urgent = collect_urgent(rows, today)
+    urgent, old_count = collect_urgent(rows, today)
 
     # 완료될 때까지 재알림 규칙: 마지막 알림 후 _RENOTIFY_AFTER 이상 지난 것만 다시 알린다.
     state = _load_state()
@@ -168,7 +180,7 @@ async def main():
         return
 
     slack = AsyncWebClient(token=cfg.slack_bot_token)
-    await slack.chat_postMessage(channel=channel, text=format_nudge(fresh))
+    await slack.chat_postMessage(channel=channel, text=format_nudge(fresh, old_count))
     for u in fresh:
         last_notified[u["title"]] = now.isoformat(timespec="seconds")
     # Done 처리되었거나 더 이상 안 급한(연기된) 항목은 상태 파일에서 정리해 무한정 안 늘어나게.
